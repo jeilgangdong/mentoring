@@ -1,6 +1,6 @@
 /* 실제 API 연동 설정: Apps Script Web App URL을 붙여 넣으세요. */
 const APP_CONFIG = {
-  API_URL: "https://script.google.com/macros/s/AKfycbwQcYwZtpeq26q9PW9J6cr5vlZ5eTgxAXFEODNkum7keZDP5Z_9B-T81tl3AccetyA/exec",
+  API_URL: "https://script.google.com/macros/s/AKfycbwnkxoLijfYHXuyUqaeBXsEThngCwgcCuIe1PX-YRBqEsV9FH8513SHbsFhG87mVRh8-A/exec",
   DATA_PAGE_URL: "https://docs.google.com/spreadsheets/d/1CvJq8NTV0aCGPq9qHPBL6adUYUfDvHq2RTlOG-gD9eI/edit?hl=ko&gid=0#gid=0",
   SYSTEM_PASSWORD_HASH: "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4" // 1234
 };
