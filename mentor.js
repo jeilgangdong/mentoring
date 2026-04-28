@@ -69,9 +69,8 @@ async function mentorLogin() {
     document.getElementById("formDate").value = today;
     document.getElementById("historyDateFilter").value = today;
     document.getElementById("welcomeMessage").textContent = `${currentMentor}님, 오늘 작성 대상 아동을 확인해 주세요.`;
-    await loadMentorTasks();
-    await loadMentorHistory();
     showOnly("mentorPage");
+    await loadMentorTasks();
   } catch (error) {
     alert(error.message);
   }
@@ -213,6 +212,7 @@ function collectFormValues() {
 async function submitObservation() {
   try {
     const form = collectFormValues();
+    if (!confirm("제출하시겠습니까?")) return;
     if (editTarget) {
       await callApi("updateObservation", {
         token: currentToken,
@@ -233,8 +233,8 @@ async function submitObservation() {
       alert("관찰일지가 제출되었습니다.");
     }
     await loadMentorTasks();
-    await loadMentorHistory();
     showOnly("mentorPage");
+    resetMentorHomeUI();
   } catch (error) {
     alert(error.message);
   }
@@ -493,9 +493,8 @@ window.addEventListener("load", async () => {
   if (sessionStorage.getItem("mentorSystemAccess") === "Y" && !currentToken) showOnly("loginPage");
   if (currentToken) {
     try {
-      await loadMentorTasks();
-      await loadMentorHistory();
       showOnly("mentorPage");
+      await loadMentorTasks();
     } catch {
       logout();
     }

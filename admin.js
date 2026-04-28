@@ -60,11 +60,7 @@ async function adminLogin() {
 }
 
 async function initAdmin() {
-  await loadSettings();
-  await loadDashboard();
-  await loadChildrenList();
-  await loadMentorManagement();
-  await loadNotificationLogs();
+  await Promise.all([loadSettings(), loadDashboard()]);
 }
 
 async function loadDashboard() {
@@ -570,6 +566,7 @@ function showAdminTab(id, button) {
   });
   document.querySelectorAll(".tab").forEach(tab => tab.classList.remove("active"));
   button.classList.add("active");
+  if (id === "childrenSection") loadChildrenList();
   if (id === "mentorSection") loadMentorManagement();
   if (id === "logSection") loadNotificationLogs();
 }
