@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>제일강동지역아동센터 멘토 관찰일지</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="app-header no-print">
+    <button class="brand-title" type="button" onclick="goMentorHome()" aria-label="멘토 홈으로 이동">
+      <span class="brand-mark">JG</span>
+      <span>
+        <strong>제일강동지역아동센터 관찰일지</strong>
+        <small>Mentor Observation Log</small>
+      </span>
+    </button>
+    <nav class="header-actions">
+      <button class="secondary" type="button" onclick="goMentorHome()">홈</button>
+      <button class="ghost" type="button" onclick="logout()">로그아웃</button>
+    </nav>
+  </header>
+
+  <main id="gatePage" class="login-box">
+    <h1>시스템 접근</h1>
+    <p>프론트엔드 접근 차단용 비밀번호를 입력해 주세요. 실제 데이터 권한은 Apps Script에서 다시 검증됩니다.</p>
+    <label for="systemPassword">시스템 비밀번호</label>
+    <input id="systemPassword" type="password" autocomplete="current-password" placeholder="시스템 비밀번호" />
+    <button type="button" onclick="checkSystemPassword()">입장하기</button>
+  </main>
+
+  <main id="loginPage" class="login-box hidden">
+    <h1>멘토 로그인</h1>
+    <p>멘토 이름과 PIN을 입력하면 Apps Script에서 사용 여부와 PIN을 검증합니다.</p>
+    <label for="mentorName">멘토 이름</label>
+    <input id="mentorName" type="text" autocomplete="name" placeholder="예: 김멘토" />
+    <label for="mentorPin">PIN</label>
+    <input id="mentorPin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="PIN" />
+    <button type="button" onclick="mentorLogin()">로그인</button>
+  </main>
+
+  <main id="mentorPage" class="container hidden">
+    <section class="page-hero no-print">
+      <div>
+        <span class="eyebrow">MENTOR</span>
+        <h1>오늘 작성 대상</h1>
+        <p id="welcomeMessage">오늘 작성 대상 아동을 확인하고 관찰일지를 제출해 주세요.</p>
+      </div>
+      <button type="button" onclick="openAddChild()">다른 아동 추가 작성</button>
+    </section>
+
+    <div class="tabs no-print">
+      <button id="todayTabBtn" class="tab active" type="button" onclick="showMentorTab('todaySection', this)">오늘 작성</button>
+      <button class="tab" type="button" onclick="showMentorTab('historySection', this)">작성내역</button>
+    </div>
+
+    <section id="todaySection">
+      <div id="workdayNotice" class="notice"></div>
+      <div id="taskList" class="task-list"></div>
+    </section>
+
+    <section id="historySection" class="hidden">
+      <h2 class="section-title">작성내역</h2>
+      <div class="filter-panel">
+        <div>
+          <label for="historyDateFilter">날짜</label>
+          <input id="historyDateFilter" type="date" onchange="applyHistoryDateFilter()" />
+        </div>
+        <div>
+          <label for="historyChildFilter">아동별 보기</label>
+          <select id="historyChildFilter" onchange="renderHistory()">
+            <option value="">전체 아동</option>
+          </select>
+        </div>
+        <div class="button-row history-filter-actions">
+          <button class="secondary" type="button" onclick="setHistoryToday()">오늘</button>
+          <button class="secondary" type="button" onclick="setHistoryAllPeriod()">전체 기간</button>
+          <button type="button" onclick="loadMentorHistory()">조회</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>제출날짜</th>
+              <th>아동명</th>
+              <th>작성구분</th>
+              <th>제출시간</th>
+              <th>수정상태</th>
+              <th>기능</th>
+            </tr>
+          </thead>
+          <tbody id="mentorHistoryBody"></tbody>
+        </table>
+      </div>
+      <section id="mentorDetailCard" class="detail-card hidden"></section>
+    </section>
+  </main>
+
+  <main id="addChildPage" class="container hidden">
+    <section class="form-card">
+      <div class="form-header">
+        <h1>다른 아동 추가 작성</h1>
+        <button class="secondary" type="button" onclick="backToMentor()">목록으로</button>
+      </div>
+      <p class="notice">기본 담당 아동 외에 실제 지도한 아동을 작성할 수 있습니다. 이미 같은 날짜에 작성된 아동은 추가 작성할 수 없습니다.</p>
+      <label for="extraChild">아동 선택</label>
+      <select id="extraChild"></select>
+      <label for="extraReason">추가사유</label>
+      <select id="extraReason">
+        <option value="">선택</option>
+        <option value="대체 지도">대체 지도</option>
+        <option value="보강 지도">보강 지도</option>
+        <option value="임시 배정">임시 배정</option>
+        <option value="공동 지도">공동 지도</option>
+        <option value="기타">기타</option>
+      </select>
+      <button type="button" onclick="addExtraChild()">작성하기</button>
+    </section>
+  </main>
+
+  <main id="formPage" class="container hidden">
+    <section class="form-card">
+      <div class="form-header">
+        <h1 id="formTitle">관찰일지 작성</h1>
+        <button class="secondary" type="button" onclick="backToMentor()">목록으로</button>
+      </div>
+      <div class="notice">문제집명/페이지는 1개 이상 필수입니다. 항목 내부 줄바꿈은 저장 시 공백으로 정리됩니다.</div>
+      <div class="row">
+        <div>
+          <label for="formMentor">제출자</label>
+          <input id="formMentor" readonly />
+        </div>
+        <div>
+          <label for="formDate">제출날짜</label>
+          <input id="formDate" readonly />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label for="formChild">아동명</label>
+          <input id="formChild" readonly />
+        </div>
+        <div>
+          <label for="formType">작성구분</label>
+          <input id="formType" readonly />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label for="formEditStatus">수정 여부</label>
+          <input id="formEditStatus" readonly />
+        </div>
+        <div>
+          <label for="formReason">추가사유</label>
+          <input id="formReason" readonly />
+        </div>
+      </div>
+
+      <div class="field-header">
+        <h2>문제집명/페이지</h2>
+        <button class="secondary small-btn" type="button" onclick="addBookPageInput()">+ 추가</button>
+      </div>
+      <div id="bookPageList" class="book-list"></div>
+
+      <label for="learningNote">학습태도 및 특이사항</label>
+      <textarea id="learningNote" placeholder="학습태도, 집중도, 특이사항 등을 작성해 주세요."></textarea>
+      <label for="socialWorkerNote">담당 사회복지사 전달사항</label>
+      <textarea id="socialWorkerNote" placeholder="전달사항이 없으면 '해당 없음'으로 작성해 주세요."></textarea>
+      <button type="button" onclick="submitObservation()">제출하기</button>
+    </section>
+  </main>
+
+  <main id="editReasonPage" class="container hidden">
+    <section class="form-card">
+      <div class="form-header">
+        <h1>수정사유 선택</h1>
+        <button class="secondary" type="button" onclick="backToMentor()">목록으로</button>
+      </div>
+      <p class="notice">제출 당일에만 본인이 작성한 관찰일지를 수정할 수 있습니다. 기존 기록은 삭제되지 않고 버전 이력으로 남습니다.</p>
+      <label for="editReason">수정사유</label>
+      <select id="editReason">
+        <option value="">선택</option>
+        <option value="오기재">오기재</option>
+        <option value="내용 보완">내용 보완</option>
+        <option value="아동 선택 오류">아동 선택 오류</option>
+        <option value="기타">기타</option>
+      </select>
+      <button type="button" onclick="startEditWithReason()">수정 진행</button>
+    </section>
+  </main>
+
+  <script src="mentor.js"></script>
+</body>
+</html>

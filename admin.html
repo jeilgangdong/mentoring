@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>제일강동지역아동센터 관리자</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="app-header no-print">
+    <button class="brand-title" type="button" onclick="goAdminHome()" aria-label="관리자 홈으로 이동">
+      <span class="brand-mark">JG</span>
+      <span>
+        <strong>제일강동지역아동센터 관리자</strong>
+        <small>Observation Admin Dashboard</small>
+      </span>
+    </button>
+    <nav class="header-actions">
+      <button class="secondary" type="button" onclick="goAdminHome()">홈</button>
+      <button class="secondary" type="button" onclick="openDataPage()">데이터페이지</button>
+      <button id="globalNotificationStatusBtn" class="status-btn" type="button" onclick="goAdminSettings()">알림 확인중</button>
+      <button class="ghost" type="button" onclick="logoutAdmin()">로그아웃</button>
+    </nav>
+  </header>
+
+  <main id="adminGatePage" class="login-box">
+    <h1>관리자 접근</h1>
+    <p>시스템 비밀번호와 관리자 PIN을 입력해 주세요. 전체 데이터 조회 권한은 Apps Script에서 검증됩니다.</p>
+    <label for="adminSystemPassword">시스템 비밀번호</label>
+    <input id="adminSystemPassword" type="password" autocomplete="current-password" placeholder="시스템 비밀번호" />
+    <label for="adminPin">관리자 PIN</label>
+    <input id="adminPin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="관리자 PIN" />
+    <button type="button" onclick="adminLogin()">관리자 로그인</button>
+  </main>
+
+  <main id="adminPage" class="container hidden">
+    <section class="page-hero no-print">
+      <div>
+        <span class="eyebrow">ADMIN</span>
+        <h1>작성 현황과 운영 설정</h1>
+        <p>날짜별 작성 현황, 아동별 기록, 마감시간과 알림 설정을 관리합니다.</p>
+      </div>
+      <button type="button" onclick="sendMissingNotifications()">미작성 알림 발송</button>
+    </section>
+
+    <div class="tabs no-print">
+      <button class="tab active" type="button" onclick="showAdminTab('dashboardSection', this)">전체 현황</button>
+      <button class="tab" type="button" onclick="showAdminTab('childrenSection', this)">아동별 조회</button>
+      <button class="tab" type="button" onclick="showAdminTab('mentorSection', this)">멘토관리</button>
+      <button class="tab" type="button" onclick="showAdminTab('settingsSection', this)">설정</button>
+      <button class="tab" type="button" onclick="showAdminTab('logSection', this)">알림 로그</button>
+    </div>
+
+    <section id="dashboardSection">
+      <div class="filter-panel dashboard-filter-panel">
+        <div>
+          <label for="dashboardDate">조회 날짜</label>
+          <input id="dashboardDate" type="date" onchange="loadDashboard()" />
+        </div>
+        <div class="dashboard-status-boxes" id="dashboardDeadlineInfo">
+          <span class="mini-status">마감시간 확인중</span>
+          <span class="mini-status">알림 확인중</span>
+          <span class="mini-status">운영규칙 확인중</span>
+        </div>
+      </div>
+      <h2 class="section-title">멘토별 작성 현황</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>성명</th>
+              <th>관리대상</th>
+              <th>멘토작성</th>
+              <th>대리자작성</th>
+              <th>미작성</th>
+              <th>작성률</th>
+            </tr>
+          </thead>
+          <tbody id="mentorStatusBody"></tbody>
+        </table>
+      </div>
+      <h2 class="section-title">미작성 목록</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>아동명</th>
+              <th>원담당멘토</th>
+              <th>마감시간</th>
+              <th>상태</th>
+            </tr>
+          </thead>
+          <tbody id="missingBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="childrenSection" class="hidden">
+      <h2 class="section-title">아동별 조회</h2>
+      <div class="filter-panel">
+        <input id="childSearch" type="search" placeholder="아동명 검색" oninput="renderChildrenList()" />
+        <select id="groupFilter" onchange="renderChildrenList()"><option value="">전체 그룹</option></select>
+        <select id="mentorFilter" onchange="renderChildrenList()"><option value="">전체 멘토</option></select>
+        <button type="button" onclick="renderChildrenList()">조회</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>아동명</th>
+              <th>그룹</th>
+              <th>기본담당멘토</th>
+              <th>최근 작성일</th>
+              <th>누적 기록</th>
+              <th>상세</th>
+            </tr>
+          </thead>
+          <tbody id="childrenBody"></tbody>
+        </table>
+      </div>
+      <section id="childDetailSection" class="detail-card hidden">
+        <div class="form-header">
+          <div>
+            <h2 id="childDetailTitle">아동 상세</h2>
+            <p id="childDetailMeta"></p>
+          </div>
+          <button class="secondary no-print" type="button" onclick="closeChildDetail()">닫기</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>날짜</th>
+                <th>요일</th>
+                <th>원담당멘토</th>
+                <th>실제작성자</th>
+                <th>구분</th>
+                <th>추가사유</th>
+                <th>수정상태</th>
+                <th>보기</th>
+                <th>인쇄</th>
+              </tr>
+            </thead>
+            <tbody id="childRecordsBody"></tbody>
+          </table>
+        </div>
+        <section id="observationDetail" class="detail-card nested hidden">
+          <div class="form-header">
+            <h2>관찰일지 상세</h2>
+            <button class="secondary no-print" type="button" onclick="hideObservationDetail()">닫기</button>
+          </div>
+          <div id="observationDetailBody" class="detail-body"></div>
+        </section>
+      </section>
+    </section>
+
+    <section id="mentorSection" class="hidden">
+      <h2 class="section-title">멘토관리</h2>
+      <div class="grid mentor-manage-grid">
+        <section class="form-card">
+          <h2>멘토 정보</h2>
+          <label for="mentorManageName">멘토명</label>
+          <input id="mentorManageName" placeholder="예: 김멘토" />
+          <label for="mentorManagePin">PIN</label>
+          <input id="mentorManagePin" inputmode="numeric" placeholder="로그인 PIN" />
+          <label for="mentorManageEmail">메일주소</label>
+          <input id="mentorManageEmail" type="email" placeholder="mentor@example.com" />
+          <label for="mentorManageActive">사용여부</label>
+          <select id="mentorManageActive">
+            <option value="Y">Y</option>
+            <option value="N">N</option>
+          </select>
+          <button type="button" onclick="saveMentor()">멘토 저장</button>
+        </section>
+
+        <section class="form-card">
+          <h2>담당 아동/과목/요일 설정</h2>
+          <label for="assignmentMentor">멘토</label>
+          <select id="assignmentMentor"></select>
+          <label for="assignmentChild">아동</label>
+          <select id="assignmentChild"></select>
+          <label for="assignmentSubject">과목</label>
+          <input id="assignmentSubject" placeholder="예: 수학, 영어" />
+          <label>활동 요일</label>
+          <div class="weekday-picker">
+            <label><input type="checkbox" name="assignmentDays" value="월" />월</label>
+            <label><input type="checkbox" name="assignmentDays" value="화" />화</label>
+            <label><input type="checkbox" name="assignmentDays" value="수" />수</label>
+            <label><input type="checkbox" name="assignmentDays" value="목" />목</label>
+            <label><input type="checkbox" name="assignmentDays" value="금" />금</label>
+            <label><input type="checkbox" name="assignmentDays" value="토" />토</label>
+            <label><input type="checkbox" name="assignmentDays" value="일" />일</label>
+          </div>
+          <button type="button" onclick="saveMentorAssignment()">담당 설정 저장</button>
+        </section>
+      </div>
+
+      <h2 class="section-title">멘토 목록</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>멘토명</th>
+              <th>이메일</th>
+              <th>사용여부</th>
+              <th>담당 아동</th>
+              <th>관리</th>
+            </tr>
+          </thead>
+          <tbody id="mentorManageBody"></tbody>
+        </table>
+      </div>
+
+      <h2 class="section-title">아동별 담당 설정</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>아동명</th>
+              <th>그룹</th>
+              <th>담당 멘토</th>
+              <th>과목</th>
+              <th>활동 요일</th>
+              <th>관리</th>
+            </tr>
+          </thead>
+          <tbody id="assignmentBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="settingsSection" class="hidden">
+      <h2 class="section-title">설정</h2>
+      <div class="grid settings-grid">
+        <section class="card">
+          <h3>기본 운영 원칙</h3>
+          <p>기본 작성/알림 대상은 평일입니다. 주말, 공휴일, 휴관일은 특정일자 설정이 기본 요일 계산보다 우선합니다.</p>
+        </section>
+        <section class="card">
+          <h3>기본 마감시간</h3>
+          <label for="defaultDeadlineTime">기본 마감시간</label>
+          <input id="defaultDeadlineTime" type="time" />
+          <button type="button" onclick="saveSettings()">저장</button>
+        </section>
+        <section class="card">
+          <h3>전체 알림</h3>
+          <label for="globalNotificationToggle">전체 알림 ON/OFF</label>
+          <select id="globalNotificationToggle">
+            <option value="ON">ON</option>
+            <option value="OFF">OFF</option>
+          </select>
+          <button type="button" onclick="saveSettings()">저장</button>
+        </section>
+      </div>
+
+      <section class="form-card">
+        <div class="form-header">
+          <h2>특정일자 운영 설정</h2>
+          <button class="secondary" type="button" onclick="resetSpecificDateForm()">입력 초기화</button>
+        </div>
+        <div class="filter-panel">
+          <div>
+            <label for="specificDate">날짜</label>
+            <input id="specificDate" type="date" onchange="syncSpecificWeekday()" />
+          </div>
+          <div>
+            <label for="specificWeekday">요일</label>
+            <input id="specificWeekday" readonly />
+          </div>
+          <div>
+            <label for="specificOperation">운영구분</label>
+            <select id="specificOperation" onchange="handleSpecificOperationChange()">
+              <option value="작성">작성</option>
+              <option value="작성제외">작성제외</option>
+              <option value="예외작성">예외작성</option>
+            </select>
+          </div>
+          <div>
+            <label for="specificDeadlineTime">마감시간</label>
+            <input id="specificDeadlineTime" type="text" placeholder="18:00" />
+          </div>
+          <div>
+            <label for="specificNotificationToggle">알림여부</label>
+            <select id="specificNotificationToggle">
+              <option value="ON">ON</option>
+              <option value="OFF">OFF</option>
+            </select>
+          </div>
+          <div>
+            <label for="specificMemo">비고</label>
+            <input id="specificMemo" placeholder="예: 보강 운영, 휴관" />
+          </div>
+        </div>
+        <button type="button" onclick="saveSpecificDateSetting()">특정일자 저장</button>
+      </section>
+
+      <h2 class="section-title">특정일자 설정 목록</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>날짜</th>
+              <th>요일</th>
+              <th>운영구분</th>
+              <th>마감시간</th>
+              <th>알림여부</th>
+              <th>비고</th>
+              <th>관리</th>
+            </tr>
+          </thead>
+          <tbody id="specificSettingsBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="logSection" class="hidden">
+      <h2 class="section-title">알림 로그</h2>
+      <div class="filter-panel">
+        <input id="logDateFilter" type="date" />
+        <button type="button" onclick="loadNotificationLogs()">조회</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>발송일자</th>
+              <th>일시</th>
+              <th>알림유형</th>
+              <th>수신자</th>
+              <th>관련 아동</th>
+              <th>채널</th>
+              <th>결과</th>
+              <th>비고</th>
+            </tr>
+          </thead>
+          <tbody id="notificationLogBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <div id="printArea" class="print-area"></div>
+  <script src="admin.js"></script>
+</body>
+</html>
