@@ -1,11 +1,12 @@
 /* 실제 API 연동 설정: Apps Script Web App URL을 붙여 넣으세요. */
 const APP_CONFIG = {
-  API_URL: "https://script.google.com/macros/s/AKfycbzhOsfvEbPiENCowYxLCLhiGF527J5tYi7p3F64Z5WGmEquXvWaqsTVrkwOzYmdVJUrSA/exec",
+  API_URL: "https://script.google.com/macros/s/AKfycbwQcYwZtpeq26q9PW9J6cr5vlZ5eTgxAXFEODNkum7keZDP5Z_9B-T81tl3AccetyA/exec",
   DATA_PAGE_URL: "https://docs.google.com/spreadsheets/d/1CvJq8NTV0aCGPq9qHPBL6adUYUfDvHq2RTlOG-gD9eI/edit?hl=ko&gid=0#gid=0",
   SYSTEM_PASSWORD_HASH: "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4" // 1234
 };
 
 const today = toDateString(new Date());
+let pendingRequests = 0;
 let adminToken = "";
 let dashboardState = null;
 let childrenState = [];
@@ -23,14 +24,26 @@ async function callApi(action, payload = {}) {
     throw new Error("Apps Script Web App URL이 설정되지 않았습니다. admin.js의 APP_CONFIG.API_URL을 배포 URL로 교체해 주세요.");
   }
 
-  const response = await fetch(APP_CONFIG.API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({ action, ...payload })
-  });
-  const data = await response.json();
-  if (!data.ok) throw new Error(data.message || "요청 처리 중 오류가 발생했습니다.");
-  return data;
+  setPageLoading(true);
+  try {
+    const response = await fetch(APP_CONFIG.API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action, ...payload })
+    });
+    const data = await response.json();
+    if (!data.ok) throw new Error(data.message || "요청 처리 중 오류가 발생했습니다.");
+    return data;
+  } finally {
+    setPageLoading(false);
+  }
+}
+
+function setPageLoading(isLoading) {
+  pendingRequests += isLoading ? 1 : -1;
+  pendingRequests = Math.max(0, pendingRequests);
+  document.body.classList.toggle("loading", pendingRequests > 0);
+  document.body.setAttribute("aria-busy", pendingRequests > 0 ? "true" : "false");
 }
 
 async function sha256(text) {

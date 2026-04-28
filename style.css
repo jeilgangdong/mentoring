@@ -25,6 +25,11 @@ body {
   font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+body.loading,
+body.loading * {
+  cursor: progress !important;
+}
+
 .app-header {
   position: sticky;
   top: 0;

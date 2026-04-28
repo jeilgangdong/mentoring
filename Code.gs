@@ -1,4 +1,5 @@
 const SPREADSHEET_ID = "1CvJq8NTV0aCGPq9qHPBL6adUYUfDvHq2RTlOG-gD9eI";
+let SPREADSHEET_CACHE = null;
 
 const SHEETS = {
   mentors: "멘토관리",
@@ -32,7 +33,7 @@ function doGet(e) {
 
 function handleRequest_(e) {
   try {
-    setupSheets();
+    ensureSheetsReady_();
     const payload = parsePayload_(e);
     const action = payload.action;
     if (!action || typeof API[action] !== "function") throw new Error("지원하지 않는 action입니다.");
@@ -80,6 +81,13 @@ function setupSheets() {
     }
   });
   seedDefaultSettings_();
+  PropertiesService.getScriptProperties().setProperty("SHEETS_READY", "Y");
+  return {};
+}
+
+function ensureSheetsReady_() {
+  if (PropertiesService.getScriptProperties().getProperty("SHEETS_READY") === "Y") return;
+  setupSheets();
 }
 
 function seedDefaultSettings_() {
@@ -100,28 +108,16 @@ function loginMentor(payload) {
   const pin = clean_(payload.pin);
   const mentor = readRows_(SHEETS.mentors).find(row => row["멘토명"] === name && String(row["PIN"]) === pin && row["사용여부"] === "Y");
   if (!mentor) throw new Error("멘토 이름 또는 PIN이 올바르지 않거나 사용 중지된 계정입니다.");
-  return { mentor: { name, token: createToken_("mentor", name) } };
+  return {
+    mentor: { name, token: createToken_("mentor", name) },
+    taskState: buildMentorTaskState_(name, today_())
+  };
 }
 
 function getMentorTasks(payload) {
   const auth = requireMentor_(payload.token);
   const date = payload.date || today_();
-  const rule = getDateRule_(date);
-  if (rule.isWorkday) ensureDailyTasks_(date);
-  const childrenById = childrenById_();
-  const tasks = rule.isWorkday
-    ? readRows_(SHEETS.tasks)
-      .filter(row => toDate_(row["제출날짜"]) === date && row["원담당멘토"] === auth.name)
-      .filter(row => childrenById[row["아동ID"]] && isChildScheduledOnDate_(childrenById[row["아동ID"]], date))
-      .map(taskDto_)
-    : [];
-  return {
-    date,
-    isWorkday: rule.isWorkday,
-    deadlineTime: rule.deadlineTime,
-    tasks,
-    children: getActiveChildren_().map(childDto_)
-  };
+  return buildMentorTaskState_(auth.name, date);
 }
 
 function submitObservation(payload) {
@@ -178,7 +174,7 @@ function submitObservation(payload) {
     "추가사유": extraReason,
     "마감시간": rule.deadlineTime
   });
-  return {};
+  return { taskState: buildMentorTaskState_(auth.name, date) };
 }
 
 function updateObservation(payload) {
@@ -217,7 +213,7 @@ function updateObservation(payload) {
     auth.name,
     editReason
   ]);
-  return {};
+  return { taskState: buildMentorTaskState_(auth.name, toDate_(current["제출날짜"])) };
 }
 
 function getMentorHistory(payload) {
@@ -267,10 +263,10 @@ function getAdminDashboard(payload) {
 
   const missing = tasks
     .filter(task => !observations.some(obs => obs["아동ID"] === task["아동ID"]))
-    .map(row => ({ childId: row["아동ID"], childName: row["아동명"], originalMentor: row["원담당멘토"], deadlineTime: row["마감시간"] || rule.deadlineTime }));
+    .map(row => ({ childId: row["아동ID"], childName: row["아동명"], originalMentor: row["원담당멘토"], deadlineTime: normalizeTime_(row["마감시간"], rule.deadlineTime) }));
 
   return {
-    deadlineTime: rule.deadlineTime,
+    deadlineTime: normalizeTime_(rule.deadlineTime, "--:--"),
     notificationEnabled: isNotificationEnabled_(date),
     operationText: rule.operationText,
     mentorStatus,
@@ -317,7 +313,7 @@ function getSettings(payload) {
   requireAdmin_(payload.token);
   return {
     settings: {
-      defaultDeadlineTime: getSetting_("DEFAULT_DEADLINE_TIME", "18:00"),
+      defaultDeadlineTime: normalizeTime_(getSetting_("DEFAULT_DEADLINE_TIME", "18:00"), "18:00"),
       globalNotification: getSetting_("GLOBAL_NOTIFICATION", "ON"),
       specificDates: readRows_(SHEETS.dates).map(dateSettingDto_).sort((a, b) => b.date.localeCompare(a.date))
     }
@@ -395,7 +391,7 @@ function saveMentorAssignment(payload) {
 
 function saveSettings(payload) {
   requireAdmin_(payload.token);
-  setSetting_("DEFAULT_DEADLINE_TIME", clean_(payload.defaultDeadlineTime) || "18:00");
+  setSetting_("DEFAULT_DEADLINE_TIME", normalizeTime_(payload.defaultDeadlineTime, "18:00"));
   setSetting_("GLOBAL_NOTIFICATION", clean_(payload.globalNotification) === "OFF" ? "OFF" : "ON");
   return {};
 }
@@ -410,7 +406,7 @@ function saveSpecificDateSetting(payload) {
     date,
     clean_(setting.weekday) || weekdayKo_(date),
     operationType,
-    operationType === "작성제외" ? "--:--" : (clean_(setting.deadlineTime) || getSetting_("DEFAULT_DEADLINE_TIME", "18:00")),
+    operationType === "작성제외" ? "--:--" : normalizeTime_(setting.deadlineTime, normalizeTime_(getSetting_("DEFAULT_DEADLINE_TIME", "18:00"), "18:00")),
     operationType === "작성제외" ? "OFF" : (clean_(setting.notification) === "OFF" ? "OFF" : "ON"),
     clean_(setting.memo)
   ];
@@ -480,7 +476,7 @@ function sendMissingNotifications(payload) {
       MailApp.sendEmail({
         to: email,
         subject: `[관찰일지] ${date} ${task["아동명"]} 미작성 알림`,
-        body: `${task["원담당멘토"]}님,\n\n${date} ${task["아동명"]} 관찰일지가 아직 작성되지 않았습니다.\n마감시간: ${task["마감시간"] || rule.deadlineTime}\n\n이미 다른 멘토가 대신 작성한 경우에는 이 알림이 발송되지 않습니다.`
+        body: `${task["원담당멘토"]}님,\n\n${date} ${task["아동명"]} 관찰일지가 아직 작성되지 않았습니다.\n마감시간: ${normalizeTime_(task["마감시간"], rule.deadlineTime)}\n\n이미 다른 멘토가 대신 작성한 경우에는 이 알림이 발송되지 않습니다.`
       });
       appendLog_(date, type, task["원담당멘토"], task["아동명"], "Gmail", "성공", "");
       sent++;
@@ -505,12 +501,47 @@ function sendMissingNotifications(payload) {
 function ensureDailyTasks_(date) {
   const rule = getDateRule_(date);
   if (!rule.isWorkday) return;
-  getActiveChildren_().filter(child => isChildScheduledOnDate_(child, date)).forEach(child => {
-    const writingId = `${date}_${child["아동ID"]}`;
-    if (!findTask_(writingId)) {
-      appendRow_(SHEETS.tasks, [writingId, date, child["아동ID"], child["아동명"], child["기본담당멘토"], "미작성", "", "담당", "해당 없음", rule.deadlineTime]);
-    }
-  });
+
+  const sheet = getSheet_(SHEETS.tasks);
+  const existingIds = {};
+  readRows_(SHEETS.tasks)
+    .filter(row => toDate_(row["제출날짜"]) === date)
+    .forEach(row => existingIds[row["작성ID"]] = true);
+
+  const newRows = getActiveChildren_()
+    .filter(child => isChildScheduledOnDate_(child, date))
+    .map(child => {
+      const writingId = `${date}_${child["아동ID"]}`;
+      if (existingIds[writingId]) return null;
+      existingIds[writingId] = true;
+      return [writingId, date, child["아동ID"], child["아동명"], child["기본담당멘토"], "미작성", "", "담당", "해당 없음", rule.deadlineTime];
+    })
+    .filter(Boolean);
+
+  if (newRows.length) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, HEADERS[SHEETS.tasks].length).setValues(newRows);
+  }
+}
+
+function buildMentorTaskState_(mentorName, date) {
+  const rule = getDateRule_(date);
+  if (rule.isWorkday) ensureDailyTasks_(date);
+  const children = getActiveChildren_();
+  const childrenById = {};
+  children.forEach(child => childrenById[child["아동ID"]] = child);
+  const tasks = rule.isWorkday
+    ? readRows_(SHEETS.tasks)
+      .filter(row => toDate_(row["제출날짜"]) === date && row["원담당멘토"] === mentorName)
+      .filter(row => childrenById[row["아동ID"]] && isChildScheduledOnDate_(childrenById[row["아동ID"]], date))
+      .map(taskDto_)
+    : [];
+  return {
+    date,
+    isWorkday: rule.isWorkday,
+    deadlineTime: rule.deadlineTime,
+    tasks,
+    children: children.map(childDto_)
+  };
 }
 
 function getDateRule_(date) {
@@ -520,7 +551,7 @@ function getDateRule_(date) {
     const excluded = operation === "작성제외";
     return {
       isWorkday: operation === "작성" || operation === "예외작성",
-      deadlineTime: excluded ? "--:--" : (specific["마감시간"] || getSetting_("DEFAULT_DEADLINE_TIME", "18:00")),
+      deadlineTime: excluded ? "--:--" : normalizeTime_(specific["마감시간"], normalizeTime_(getSetting_("DEFAULT_DEADLINE_TIME", "18:00"), "18:00")),
       notification: excluded ? "OFF" : (specific["알림여부"] || "ON"),
       operationText: `특정일자 설정 적용: ${operation}`
     };
@@ -528,7 +559,7 @@ function getDateRule_(date) {
   const isWeekday = weekdayNumber_(date) >= 1 && weekdayNumber_(date) <= 5;
   return {
     isWorkday: isWeekday,
-    deadlineTime: getSetting_("DEFAULT_DEADLINE_TIME", "18:00"),
+    deadlineTime: normalizeTime_(getSetting_("DEFAULT_DEADLINE_TIME", "18:00"), "18:00"),
     notification: "ON",
     operationText: isWeekday ? "평일 기본 적용" : "주말 기본 제외"
   };
@@ -633,7 +664,7 @@ function taskDto_(row) {
     actualWriter: row["실제작성자"],
     writingType: normalizeWritingType_(row["작성구분"]),
     extraReason: row["추가사유"],
-    deadlineTime: row["마감시간"]
+    deadlineTime: normalizeTime_(row["마감시간"], "")
   };
 }
 
@@ -653,7 +684,7 @@ function dateSettingDto_(row) {
     date: toDate_(row["날짜"]),
     weekday: row["요일"],
     operationType: row["운영구분"],
-    deadlineTime: row["운영구분"] === "작성제외" ? "--:--" : row["마감시간"],
+    deadlineTime: row["운영구분"] === "작성제외" ? "--:--" : normalizeTime_(row["마감시간"], ""),
     notification: row["운영구분"] === "작성제외" ? "OFF" : row["알림여부"],
     memo: row["비고"]
   };
@@ -661,6 +692,20 @@ function dateSettingDto_(row) {
 
 function normalizeWritingType_(type) {
   return !type || type === "지정" ? "담당" : type;
+}
+
+function normalizeTime_(value, fallback) {
+  if (value === "--:--") return "--:--";
+  if (Object.prototype.toString.call(value) === "[object Date]" && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone() || "Asia/Seoul", "HH:mm");
+  }
+  const text = clean_(value);
+  if (!text) return fallback || "";
+  const hhmm = text.match(/^(\d{1,2}):(\d{2})/);
+  if (hhmm) {
+    return `${hhmm[1].padStart(2, "0")}:${hhmm[2]}`;
+  }
+  return fallback || text;
 }
 
 function createToken_(role, name) {
@@ -750,7 +795,10 @@ function getSheet_(name) {
 }
 
 function getSpreadsheet_() {
-  return SpreadsheetApp.openById(SPREADSHEET_ID);
+  if (!SPREADSHEET_CACHE) {
+    SPREADSHEET_CACHE = SpreadsheetApp.openById(SPREADSHEET_ID);
+  }
+  return SPREADSHEET_CACHE;
 }
 
 function parsePayload_(e) {

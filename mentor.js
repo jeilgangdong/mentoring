@@ -4,11 +4,12 @@
    Apps Script 배포 후 Web App URL을 API_URL에 붙여 넣으세요.
 */
 const APP_CONFIG = {
-  API_URL: "https://script.google.com/macros/s/AKfycbzhOsfvEbPiENCowYxLCLhiGF527J5tYi7p3F64Z5WGmEquXvWaqsTVrkwOzYmdVJUrSA/exec",
+  API_URL: "https://script.google.com/macros/s/AKfycbwQcYwZtpeq26q9PW9J6cr5vlZ5eTgxAXFEODNkum7keZDP5Z_9B-T81tl3AccetyA/exec",
   SYSTEM_PASSWORD_HASH: "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4" // 1234
 };
 
 const today = toDateString(new Date());
+let pendingRequests = 0;
 let currentMentor = null;
 let currentToken = "";
 let taskState = { date: today, isWorkday: true, tasks: [], children: [] };
@@ -25,14 +26,26 @@ async function callApi(action, payload = {}) {
     throw new Error("Apps Script Web App URL이 설정되지 않았습니다. mentor.js의 APP_CONFIG.API_URL을 배포 URL로 교체해 주세요.");
   }
 
-  const response = await fetch(APP_CONFIG.API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({ action, ...payload })
-  });
-  const data = await response.json();
-  if (!data.ok) throw new Error(data.message || "요청 처리 중 오류가 발생했습니다.");
-  return data;
+  setPageLoading(true);
+  try {
+    const response = await fetch(APP_CONFIG.API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action, ...payload })
+    });
+    const data = await response.json();
+    if (!data.ok) throw new Error(data.message || "요청 처리 중 오류가 발생했습니다.");
+    return data;
+  } finally {
+    setPageLoading(false);
+  }
+}
+
+function setPageLoading(isLoading) {
+  pendingRequests += isLoading ? 1 : -1;
+  pendingRequests = Math.max(0, pendingRequests);
+  document.body.classList.toggle("loading", pendingRequests > 0);
+  document.body.setAttribute("aria-busy", pendingRequests > 0 ? "true" : "false");
 }
 
 async function sha256(text) {
@@ -70,7 +83,12 @@ async function mentorLogin() {
     document.getElementById("historyDateFilter").value = today;
     document.getElementById("welcomeMessage").textContent = `${currentMentor}님, 오늘 작성 대상 아동을 확인해 주세요.`;
     showOnly("mentorPage");
-    await loadMentorTasks();
+    if (data.taskState) {
+      taskState = data.taskState;
+      renderTasks();
+    } else {
+      await loadMentorTasks();
+    }
   } catch (error) {
     alert(error.message);
   }
@@ -214,15 +232,19 @@ async function submitObservation() {
     const form = collectFormValues();
     if (!confirm("제출하시겠습니까?")) return;
     if (editTarget) {
-      await callApi("updateObservation", {
+      const data = await callApi("updateObservation", {
         token: currentToken,
         writingId: editTarget.writingId,
         editReason: editTarget.editReason,
         ...form
       });
+      if (data.taskState) {
+        taskState = data.taskState;
+        renderTasks();
+      }
       alert("관찰일지가 수정되었습니다. 기존 최신 버전은 이력으로 보관됩니다.");
     } else {
-      await callApi("submitObservation", {
+      const data = await callApi("submitObservation", {
         token: currentToken,
         date: currentTask.date || today,
         writingId: currentTask.writingId,
@@ -230,9 +252,12 @@ async function submitObservation() {
         extraReason: currentTask.extraReason || "",
         ...form
       });
+      if (data.taskState) {
+        taskState = data.taskState;
+        renderTasks();
+      }
       alert("관찰일지가 제출되었습니다.");
     }
-    await loadMentorTasks();
     showOnly("mentorPage");
     resetMentorHomeUI();
   } catch (error) {
