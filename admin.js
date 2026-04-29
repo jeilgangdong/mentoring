@@ -1,8 +1,8 @@
 /* 실제 API 연동 설정: Apps Script Web App URL을 붙여 넣으세요. */
 const APP_CONFIG = {
-  API_URL: "https://script.google.com/macros/s/AKfycbwnkxoLijfYHXuyUqaeBXsEThngCwgcCuIe1PX-YRBqEsV9FH8513SHbsFhG87mVRh8-A/exec",
+  API_URL: "https://script.google.com/macros/s/AKfycbwnYa3VcRFKKdBZqrT15GKdGltMZUfeCL4pwH56EVMTpK2eIhGQmKyGh1p6Bav4aHRRbg/exec",
   DATA_PAGE_URL: "https://docs.google.com/spreadsheets/d/1CvJq8NTV0aCGPq9qHPBL6adUYUfDvHq2RTlOG-gD9eI/edit?hl=ko&gid=0#gid=0",
-  SYSTEM_PASSWORD_HASH: "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4" // 1234
+  SYSTEM_PASSWORD_HASH: "253902860d09d7bb700c9a5d74a26cf406399d3a439551adac742ca1fe9ea91c" // 7542
 };
 
 const today = toDateString(new Date());
@@ -54,13 +54,18 @@ async function sha256(text) {
 
 async function adminLogin() {
   const systemPassword = document.getElementById("adminSystemPassword").value.trim();
+  const name = document.getElementById("adminName").value.trim();
   const pin = document.getElementById("adminPin").value.trim();
   if ((await sha256(systemPassword)) !== APP_CONFIG.SYSTEM_PASSWORD_HASH) {
     alert("시스템 비밀번호가 올바르지 않습니다.");
     return;
   }
+  if (!name || !pin) {
+    alert("관리자명과 PIN을 입력해 주세요.");
+    return;
+  }
   try {
-    const data = await callApi("adminLogin", { pin });
+    const data = await callApi("adminLogin", { name, pin });
     adminToken = data.admin.token;
     sessionStorage.setItem("adminToken", adminToken);
     document.getElementById("dashboardDate").value = today;
@@ -164,7 +169,7 @@ function renderChildrenList() {
           <td>${escapeHtml(child.originalMentor)}</td>
           <td>${escapeHtml(child.latestDate || "-")}</td>
           <td>${child.recordCount || 0}건</td>
-          <td><button type="button" onclick="openChildDetail('${child.childId}')">보기</button></td>
+          <td><button type="button" onclick="openChildDetail('${escapeAttribute(child.childId)}')">보기</button></td>
         </tr>
       `);
     });
@@ -191,8 +196,8 @@ async function openChildDetail(childId) {
         <td>${typeBadge(record.writingType)}</td>
         <td>${escapeHtml(record.extraReason || "-")}</td>
         <td>${record.editStatus === "수정" ? `<span class="badge replace">수정 v${record.version}</span>` : `<span class="badge done">최초작성</span>`}</td>
-        <td><button class="secondary" type="button" onclick="showObservationDetail('${record.writingId}')">보기</button></td>
-        <td><button type="button" onclick="printObservation('${record.writingId}')">인쇄</button></td>
+        <td><button class="secondary" type="button" onclick="showObservationDetail('${escapeAttribute(record.writingId)}')">보기</button></td>
+        <td><button type="button" onclick="printObservation('${escapeAttribute(record.writingId)}')">인쇄</button></td>
       </tr>
     `);
   });
@@ -249,8 +254,7 @@ async function saveSettings() {
     const defaultDeadlineTime = document.getElementById("defaultDeadlineTime").value;
     const globalNotification = document.getElementById("globalNotificationToggle").value;
     await callApi("saveSettings", { token: adminToken, defaultDeadlineTime, globalNotification });
-    await loadSettings();
-    await loadDashboard();
+    await Promise.all([loadSettings(), loadDashboard()]);
     alert("설정이 저장되었습니다.");
   } catch (error) {
     alert(error.message);
@@ -279,8 +283,7 @@ async function saveSpecificDateSetting() {
   }
   try {
     await callApi("saveSpecificDateSetting", { token: adminToken, setting });
-    await loadSettings();
-    await loadDashboard();
+    await Promise.all([loadSettings(), loadDashboard()]);
     alert("특정일자 설정이 저장되었습니다.");
   } catch (error) {
     alert(error.message);
@@ -290,8 +293,7 @@ async function saveSpecificDateSetting() {
 async function deleteSpecificDateSetting(date) {
   if (!confirm(`${date} 설정을 삭제할까요?`)) return;
   await callApi("deleteSpecificDateSetting", { token: adminToken, date });
-  await loadSettings();
-  await loadDashboard();
+  await Promise.all([loadSettings(), loadDashboard()]);
 }
 
 function renderSpecificSettingsTable() {
@@ -312,8 +314,8 @@ function renderSpecificSettingsTable() {
         <td><span class="badge ${row.notification === "ON" ? "done" : "missing"}">${escapeHtml(row.notification)}</span></td>
         <td>${escapeHtml(row.memo || "-")}</td>
         <td>
-          <button class="secondary" type="button" onclick="editSpecificSetting('${row.date}')">수정</button>
-          <button class="ghost" type="button" onclick="deleteSpecificDateSetting('${row.date}')">삭제</button>
+          <button class="secondary" type="button" onclick="editSpecificSetting('${escapeAttribute(row.date)}')">수정</button>
+          <button class="ghost" type="button" onclick="deleteSpecificDateSetting('${escapeAttribute(row.date)}')">삭제</button>
         </td>
       </tr>
     `);
@@ -422,7 +424,7 @@ function renderMentorManagement() {
         <td>${escapeHtml(child.originalMentor || "-")}</td>
         <td>${escapeHtml(child.subject || "-")}</td>
         <td>${escapeHtml(child.activityDays || "-")}</td>
-        <td><button class="secondary" type="button" onclick="editAssignment('${child.childId}')">수정</button></td>
+        <td><button class="secondary" type="button" onclick="editAssignment('${escapeAttribute(child.childId)}')">수정</button></td>
       </tr>
     `);
   });
@@ -476,9 +478,7 @@ async function saveMentor() {
   }
   try {
     await callApi("saveMentor", { token: adminToken, mentor });
-    await loadMentorManagement();
-    await loadChildrenList();
-    await loadDashboard();
+    await Promise.all([loadMentorManagement(), loadChildrenList(), loadDashboard()]);
     alert("멘토 정보가 구글시트에 저장되었습니다.");
   } catch (error) {
     alert(error.message);
@@ -491,9 +491,7 @@ async function deleteMentor(name) {
   if (!confirm(`${name} 멘토를 삭제 처리할까요?\n멘토관리 시트에서는 제거되고 삭제멘토 시트로 이관됩니다.`)) return;
   try {
     await callApi("deleteMentor", { token: adminToken, name });
-    await loadMentorManagement();
-    await loadChildrenList();
-    await loadDashboard();
+    await Promise.all([loadMentorManagement(), loadChildrenList(), loadDashboard()]);
     alert("멘토 정보가 삭제멘토 시트로 이관되었습니다.");
   } catch (error) {
     alert(error.message);
@@ -513,9 +511,7 @@ async function saveMentorAssignment() {
   }
   try {
     await callApi("saveMentorAssignment", { token: adminToken, assignment });
-    await loadMentorManagement();
-    await loadChildrenList();
-    await loadDashboard();
+    await Promise.all([loadMentorManagement(), loadChildrenList(), loadDashboard()]);
     alert("담당 아동/과목/요일 설정이 구글시트에 저장되었습니다.");
   } catch (error) {
     alert(error.message);

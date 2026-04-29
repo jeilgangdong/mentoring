@@ -25,9 +25,11 @@
 
   <main id="adminGatePage" class="login-box">
     <h1>관리자 로그인</h1>
-    <p>반갑습니다. 관리자 화면에 접속하려면 안내받은 비밀번호와 PIN을 입력해 주세요.</p>
+    <p>반갑습니다. 관리자 화면에 접속하려면 안내받은 비밀번호와 관리자명·PIN을 입력해 주세요.</p>
     <label for="adminSystemPassword">시스템 비밀번호</label>
     <input id="adminSystemPassword" type="password" autocomplete="current-password" placeholder="시스템 비밀번호" />
+    <label for="adminName">관리자명</label>
+    <input id="adminName" type="text" autocomplete="username" placeholder="예: 김권수" />
     <label for="adminPin">관리자 PIN</label>
     <input id="adminPin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="관리자 PIN" />
     <button type="button" onclick="adminLogin()">관리자 로그인</button>

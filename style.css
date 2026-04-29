@@ -167,14 +167,26 @@ body.loading * {
   gap: 8px;
 }
 
-.filter-panel .button-row button,
-td button {
+.filter-panel .button-row button {
   display: inline-flex;
   min-height: 44px;
   align-items: center;
   justify-content: center;
   line-height: 1;
   white-space: nowrap;
+}
+
+td button {
+  display: inline-flex;
+  min-height: 32px;
+  padding: 5px 11px;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  white-space: nowrap;
+  font-size: 13px;
+  border-radius: 9px;
+  box-shadow: none;
 }
 
 td button + button {

@@ -1,5 +1,30 @@
 const SPREADSHEET_ID = "1CvJq8NTV0aCGPq9qHPBL6adUYUfDvHq2RTlOG-gD9eI";
 let SPREADSHEET_CACHE = null;
+let SHEETS_READY_FLAG = false;
+let __ROW_CACHE = {};
+let __DATE_RULE_CACHE = {};
+let __LOCK_HELD = false;
+
+function clearRequestCaches_() {
+  __ROW_CACHE = {};
+  __DATE_RULE_CACHE = {};
+  __LOCK_HELD = false;
+}
+
+function invalidateRowCache_(name) {
+  delete __ROW_CACHE[name];
+  __DATE_RULE_CACHE = {};
+}
+
+function withLock_(fn) {
+  if (__LOCK_HELD) return fn();
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) {
+    throw new Error("동시에 다른 처리가 진행 중입니다. 잠시 후 다시 시도해 주세요.");
+  }
+  __LOCK_HELD = true;
+  try { return fn(); } finally { __LOCK_HELD = false; lock.releaseLock(); }
+}
 
 const SHEETS = {
   mentors: "멘토관리",
@@ -9,7 +34,8 @@ const SHEETS = {
   observations: "관찰일지_취합",
   settings: "설정",
   dates: "특정일자설정",
-  logs: "알림로그"
+  logs: "알림로그",
+  admins: "관리자관리"
 };
 
 const HEADERS = {
@@ -20,18 +46,23 @@ const HEADERS = {
   [SHEETS.observations]: ["작성ID", "버전", "현재사용여부", "제출날짜", "제출시간", "제출자", "아동ID", "아동명", "원담당멘토", "실제작성자", "작성구분", "추가사유", "문제집명/페이지", "학습태도 및 특이사항", "담당 사회복지사 전달사항", "수정상태", "최초제출시간", "최종수정시간", "수정자", "수정사유"],
   [SHEETS.settings]: ["항목", "값", "비고"],
   [SHEETS.dates]: ["날짜", "요일", "운영구분", "마감시간", "알림여부", "비고"],
-  [SHEETS.logs]: ["발송일자", "일시", "알림유형", "수신자", "관련 아동", "채널", "결과", "비고"]
+  [SHEETS.logs]: ["발송일자", "일시", "알림유형", "수신자", "관련 아동", "채널", "결과", "비고"],
+  [SHEETS.admins]: ["관리자명", "PIN", "사용여부"]
 };
+
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_LOCKOUT_SECONDS = 300;
 
 function doPost(e) {
   return handleRequest_(e);
 }
 
 function doGet(e) {
-  return handleRequest_(e);
+  return json_({ ok: false, message: "이 엔드포인트는 POST 요청만 허용됩니다." });
 }
 
 function handleRequest_(e) {
+  clearRequestCaches_();
   try {
     ensureSheetsReady_();
     const payload = parsePayload_(e);
@@ -86,8 +117,13 @@ function setupSheets() {
 }
 
 function ensureSheetsReady_() {
-  if (PropertiesService.getScriptProperties().getProperty("SHEETS_READY") === "Y") return;
+  if (SHEETS_READY_FLAG) return;
+  if (PropertiesService.getScriptProperties().getProperty("SHEETS_READY") === "Y") {
+    SHEETS_READY_FLAG = true;
+    return;
+  }
   setupSheets();
+  SHEETS_READY_FLAG = true;
 }
 
 function seedDefaultSettings_() {
@@ -95,19 +131,35 @@ function seedDefaultSettings_() {
   const defaults = [
     ["DEFAULT_DEADLINE_TIME", "18:00", "기본 마감시간"],
     ["GLOBAL_NOTIFICATION", "ON", "전체 알림 ON/OFF"],
-    ["ADMIN_PIN", "9999", "관리자 PIN"],
+    ["ADMIN_PIN", "9999", "관리자 PIN (legacy, 관리자관리 시트로 이관됨)"],
     ["ADMIN_EMAIL", "", "관리자 미작성 요약 수신 이메일"]
   ];
   defaults.forEach(row => {
     if (!rows.some(item => item["항목"] === row[0])) appendRow_(SHEETS.settings, row);
   });
+  seedDefaultAdmins_();
+}
+
+function seedDefaultAdmins_() {
+  const rows = readRows_(SHEETS.admins);
+  if (rows.length) return;
+  const legacyPin = (rows.length === 0)
+    ? (readRows_(SHEETS.settings).find(item => item["항목"] === "ADMIN_PIN") || {})["값"] || "9999"
+    : "9999";
+  appendRow_(SHEETS.admins, ["관리자", String(legacyPin), "Y"]);
 }
 
 function loginMentor(payload) {
   const name = clean_(payload.name);
   const pin = clean_(payload.pin);
+  if (!name || !pin) throw new Error("멘토 이름과 PIN을 입력해 주세요.");
+  const lockKey = `mentor:${name}`;
+  checkLoginLockout_(lockKey);
   const mentor = readRows_(SHEETS.mentors).find(row => row["멘토명"] === name && String(row["PIN"]) === pin && row["사용여부"] === "Y");
-  if (!mentor) throw new Error("멘토 이름 또는 PIN이 올바르지 않거나 사용 중지된 계정입니다.");
+  if (!mentor) {
+    recordFailedLogin_(lockKey, "멘토 이름 또는 PIN이 올바르지 않거나 사용 중지된 계정입니다.");
+  }
+  clearLoginAttempts_(lockKey);
   return {
     mentor: { name, token: createToken_("mentor", name) },
     taskState: buildMentorTaskState_(name, today_())
@@ -121,6 +173,10 @@ function getMentorTasks(payload) {
 }
 
 function submitObservation(payload) {
+  return withLock_(() => submitObservation_(payload));
+}
+
+function submitObservation_(payload) {
   const auth = requireMentor_(payload.token);
   const date = payload.date || today_();
   const rule = getDateRule_(date);
@@ -178,6 +234,10 @@ function submitObservation(payload) {
 }
 
 function updateObservation(payload) {
+  return withLock_(() => updateObservation_(payload));
+}
+
+function updateObservation_(payload) {
   const auth = requireMentor_(payload.token);
   const writingId = clean_(payload.writingId);
   const current = getCurrentObservation_(writingId);
@@ -221,22 +281,29 @@ function getMentorHistory(payload) {
   const allPeriod = payload.allPeriod === true || payload.allPeriod === "true";
   const date = clean_(payload.date);
   const childId = clean_(payload.childId);
-  const records = readRows_(SHEETS.observations)
-    .filter(row => row["현재사용여부"] === "Y" && row["실제작성자"] === auth.name)
+  const mine = readRows_(SHEETS.observations)
+    .filter(row => row["현재사용여부"] === "Y" && row["실제작성자"] === auth.name);
+  const records = mine
     .filter(row => allPeriod || !date || toDate_(row["제출날짜"]) === date)
     .filter(row => !childId || row["아동ID"] === childId)
     .sort((a, b) => String(b["제출날짜"]).localeCompare(String(a["제출날짜"])) || String(b["제출시간"]).localeCompare(String(a["제출시간"])))
     .map(observationDto_);
-  const children = uniqueBy_(readRows_(SHEETS.observations)
-    .filter(row => row["현재사용여부"] === "Y" && row["실제작성자"] === auth.name)
-    .map(row => ({ childId: row["아동ID"], childName: row["아동명"] })), "childId");
+  const children = uniqueBy_(mine.map(row => ({ childId: row["아동ID"], childName: row["아동명"] })), "childId");
   return { records, children };
 }
 
 function adminLogin(payload) {
+  const name = clean_(payload.name);
   const pin = clean_(payload.pin);
-  if (pin !== getSetting_("ADMIN_PIN", "9999")) throw new Error("관리자 PIN이 올바르지 않습니다.");
-  return { admin: { token: createToken_("admin", "admin") } };
+  if (!name || !pin) throw new Error("관리자명과 PIN을 입력해 주세요.");
+  const lockKey = `admin:${name}`;
+  checkLoginLockout_(lockKey);
+  const admin = readRows_(SHEETS.admins).find(row => row["관리자명"] === name && String(row["PIN"]) === pin && row["사용여부"] === "Y");
+  if (!admin) {
+    recordFailedLogin_(lockKey, "관리자명 또는 PIN이 올바르지 않거나 사용 중지된 계정입니다.");
+  }
+  clearLoginAttempts_(lockKey);
+  return { admin: { name, token: createToken_("admin", name) } };
 }
 
 function getAdminDashboard(payload) {
@@ -350,6 +417,7 @@ function saveMentor(payload) {
   const row = findRowIndex_(SHEETS.mentors, "멘토명", name);
   if (row > 1) {
     getSheet_(SHEETS.mentors).getRange(row, 1, 1, 4).setValues([[name, pin, email, active]]);
+    invalidateRowCache_(SHEETS.mentors);
   } else {
     appendRow_(SHEETS.mentors, [name, pin, email, active]);
   }
@@ -368,6 +436,7 @@ function deleteMentor(payload) {
   const values = sheet.getRange(rowIndex, 1, 1, HEADERS[SHEETS.mentors].length).getValues()[0];
   appendRow_(SHEETS.deletedMentors, [...values, nowDateTime_(), "관리자"]);
   sheet.deleteRow(rowIndex);
+  invalidateRowCache_(SHEETS.mentors);
   return {};
 }
 
@@ -411,15 +480,22 @@ function saveSpecificDateSetting(payload) {
     clean_(setting.memo)
   ];
   const found = findRowIndex_(SHEETS.dates, "날짜", date);
-  if (found > 1) getSheet_(SHEETS.dates).getRange(found, 1, 1, row.length).setValues([row]);
-  else appendRow_(SHEETS.dates, row);
+  if (found > 1) {
+    getSheet_(SHEETS.dates).getRange(found, 1, 1, row.length).setValues([row]);
+    invalidateRowCache_(SHEETS.dates);
+  } else {
+    appendRow_(SHEETS.dates, row);
+  }
   return {};
 }
 
 function deleteSpecificDateSetting(payload) {
   requireAdmin_(payload.token);
   const row = findRowIndex_(SHEETS.dates, "날짜", clean_(payload.date));
-  if (row > 1) getSheet_(SHEETS.dates).deleteRow(row);
+  if (row > 1) {
+    getSheet_(SHEETS.dates).deleteRow(row);
+    invalidateRowCache_(SHEETS.dates);
+  }
   return {};
 }
 
@@ -520,6 +596,7 @@ function ensureDailyTasks_(date) {
 
   if (newRows.length) {
     sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, HEADERS[SHEETS.tasks].length).setValues(newRows);
+    invalidateRowCache_(SHEETS.tasks);
   }
 }
 
@@ -545,24 +622,29 @@ function buildMentorTaskState_(mentorName, date) {
 }
 
 function getDateRule_(date) {
+  if (__DATE_RULE_CACHE[date]) return __DATE_RULE_CACHE[date];
   const specific = readRows_(SHEETS.dates).find(row => toDate_(row["날짜"]) === date);
+  let rule;
   if (specific) {
     const operation = specific["운영구분"];
     const excluded = operation === "작성제외";
-    return {
+    rule = {
       isWorkday: operation === "작성" || operation === "예외작성",
       deadlineTime: excluded ? "--:--" : normalizeTime_(specific["마감시간"], normalizeTime_(getSetting_("DEFAULT_DEADLINE_TIME", "18:00"), "18:00")),
       notification: excluded ? "OFF" : (specific["알림여부"] || "ON"),
       operationText: `특정일자 설정 적용: ${operation}`
     };
+  } else {
+    const isWeekday = weekdayNumber_(date) >= 1 && weekdayNumber_(date) <= 5;
+    rule = {
+      isWorkday: isWeekday,
+      deadlineTime: normalizeTime_(getSetting_("DEFAULT_DEADLINE_TIME", "18:00"), "18:00"),
+      notification: "ON",
+      operationText: isWeekday ? "평일 기본 적용" : "주말 기본 제외"
+    };
   }
-  const isWeekday = weekdayNumber_(date) >= 1 && weekdayNumber_(date) <= 5;
-  return {
-    isWorkday: isWeekday,
-    deadlineTime: normalizeTime_(getSetting_("DEFAULT_DEADLINE_TIME", "18:00"), "18:00"),
-    notification: "ON",
-    operationText: isWeekday ? "평일 기본 적용" : "주말 기본 제외"
-  };
+  __DATE_RULE_CACHE[date] = rule;
+  return rule;
 }
 
 function isNotificationEnabled_(date) {
@@ -613,6 +695,7 @@ function setCurrentObservationFlag_(writingId, flag) {
       sheet.getRange(index + 2, headers.indexOf("현재사용여부") + 1).setValue(flag);
     }
   });
+  invalidateRowCache_(SHEETS.observations);
 }
 
 function validateBooks_(books) {
@@ -633,7 +716,7 @@ function observationDto_(row) {
     isCurrent: row["현재사용여부"],
     date: toDate_(row["제출날짜"]),
     weekday: weekdayKo_(toDate_(row["제출날짜"])),
-    submittedTime: row["제출시간"],
+    submittedTime: normalizeTime_(row["제출시간"], ""),
     submitter: row["제출자"],
     childId: row["아동ID"],
     childName: row["아동명"],
@@ -646,8 +729,8 @@ function observationDto_(row) {
     learningNote: row["학습태도 및 특이사항"],
     socialWorkerNote: row["담당 사회복지사 전달사항"],
     editStatus: row["수정상태"],
-    firstSubmittedTime: row["최초제출시간"],
-    lastModifiedTime: row["최종수정시간"],
+    firstSubmittedTime: normalizeTime_(row["최초제출시간"], ""),
+    lastModifiedTime: normalizeTime_(row["최종수정시간"], ""),
     editor: row["수정자"],
     editReason: row["수정사유"]
   };
@@ -739,8 +822,12 @@ function getSetting_(key, fallback) {
 
 function setSetting_(key, value) {
   const row = findRowIndex_(SHEETS.settings, "항목", key);
-  if (row > 1) getSheet_(SHEETS.settings).getRange(row, 2).setValue(value);
-  else appendRow_(SHEETS.settings, [key, value, ""]);
+  if (row > 1) {
+    getSheet_(SHEETS.settings).getRange(row, 2).setValue(value);
+    invalidateRowCache_(SHEETS.settings);
+  } else {
+    appendRow_(SHEETS.settings, [key, value, ""]);
+  }
 }
 
 function hasSuccessLog_(date, childName, type) {
@@ -752,19 +839,26 @@ function appendLog_(date, type, recipient, children, channel, result, memo) {
 }
 
 function readRows_(name) {
+  if (__ROW_CACHE[name]) return __ROW_CACHE[name];
   const sheet = getSheet_(name);
   const lastRow = sheet.getLastRow();
   const headers = HEADERS[name];
-  if (lastRow < 2) return [];
-  return sheet.getRange(2, 1, lastRow - 1, headers.length).getValues().map(values => {
+  if (lastRow < 2) {
+    __ROW_CACHE[name] = [];
+    return __ROW_CACHE[name];
+  }
+  const rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues().map(values => {
     const row = {};
     headers.forEach((header, index) => row[header] = values[index]);
     return row;
   });
+  __ROW_CACHE[name] = rows;
+  return rows;
 }
 
 function appendRow_(name, values) {
   getSheet_(name).appendRow(values);
+  invalidateRowCache_(name);
 }
 
 function updateByKey_(name, keyHeader, keyValue, changes) {
@@ -776,6 +870,7 @@ function updateByKey_(name, keyHeader, keyValue, changes) {
     const col = headers.indexOf(header) + 1;
     if (col > 0) sheet.getRange(rowIndex, col).setValue(changes[header]);
   });
+  invalidateRowCache_(name);
 }
 
 function findRowIndex_(name, keyHeader, keyValue) {
@@ -834,11 +929,46 @@ function toDate_(value) {
 }
 
 function weekdayNumber_(date) {
-  return new Date(`${date}T00:00:00`).getDay();
+  const tz = Session.getScriptTimeZone() || "Asia/Seoul";
+  const parsed = Utilities.parseDate(date, tz, "yyyy-MM-dd");
+  const u = Number(Utilities.formatDate(parsed, tz, "u"));
+  return u === 7 ? 0 : u;
 }
 
 function weekdayKo_(date) {
   return ["일", "월", "화", "수", "목", "금", "토"][weekdayNumber_(date)];
+}
+
+function checkLoginLockout_(key) {
+  const cache = CacheService.getScriptCache();
+  const lockedUntilRaw = cache.get(`lockout:${key}`);
+  if (!lockedUntilRaw) return;
+  const remainingMs = Number(lockedUntilRaw) - Date.now();
+  if (remainingMs <= 0) {
+    cache.remove(`lockout:${key}`);
+    return;
+  }
+  const minutes = Math.max(1, Math.ceil(remainingMs / 60000));
+  throw new Error(`로그인 시도가 ${LOGIN_MAX_ATTEMPTS}회 초과되어 약 ${minutes}분간 로그인이 차단됩니다.`);
+}
+
+function recordFailedLogin_(key, baseMessage) {
+  const cache = CacheService.getScriptCache();
+  const count = (Number(cache.get(`attempts:${key}`)) || 0) + 1;
+  if (count >= LOGIN_MAX_ATTEMPTS) {
+    const until = Date.now() + LOGIN_LOCKOUT_SECONDS * 1000;
+    cache.put(`lockout:${key}`, String(until), LOGIN_LOCKOUT_SECONDS + 60);
+    cache.remove(`attempts:${key}`);
+    throw new Error(`비밀번호 ${LOGIN_MAX_ATTEMPTS}회 오류로 ${Math.round(LOGIN_LOCKOUT_SECONDS / 60)}분간 로그인이 차단됩니다.`);
+  }
+  cache.put(`attempts:${key}`, String(count), LOGIN_LOCKOUT_SECONDS + 60);
+  throw new Error(`${baseMessage} (남은 시도 ${LOGIN_MAX_ATTEMPTS - count}회)`);
+}
+
+function clearLoginAttempts_(key) {
+  const cache = CacheService.getScriptCache();
+  cache.remove(`attempts:${key}`);
+  cache.remove(`lockout:${key}`);
 }
 
 function uniqueBy_(items, key) {

@@ -4,8 +4,8 @@
    Apps Script 배포 후 Web App URL을 API_URL에 붙여 넣으세요.
 */
 const APP_CONFIG = {
-  API_URL: "https://script.google.com/macros/s/AKfycbwnkxoLijfYHXuyUqaeBXsEThngCwgcCuIe1PX-YRBqEsV9FH8513SHbsFhG87mVRh8-A/exec",
-  SYSTEM_PASSWORD_HASH: "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4" // 1234
+  API_URL: "https://script.google.com/macros/s/AKfycbwnYa3VcRFKKdBZqrT15GKdGltMZUfeCL4pwH56EVMTpK2eIhGQmKyGh1p6Bav4aHRRbg/exec",
+  SYSTEM_PASSWORD_HASH: "253902860d09d7bb700c9a5d74a26cf406399d3a439551adac742ca1fe9ea91c" // 7542
 };
 
 const today = toDateString(new Date());
@@ -122,7 +122,7 @@ function renderTasks() {
     const badgeClass = done ? "done" : "missing";
     const action = done
       ? `<button class="secondary" type="button" onclick="showMentorTabById('historySection')">작성내역 보기</button>`
-      : `<button type="button" onclick='openForm(${JSON.stringify(task)})'>작성하기</button>`;
+      : `<button type="button" onclick="openForm(${escapeAttribute(JSON.stringify(task))})">작성하기</button>`;
 
     list.insertAdjacentHTML("beforeend", `
       <article class="task-item">
@@ -321,8 +321,8 @@ function renderHistory() {
         <td>${escapeHtml(record.submittedTime || "-")}</td>
         <td>${record.editStatus === "수정" ? `<span class="badge replace">수정 v${record.version}</span>` : `<span class="badge done">최초작성</span>`}</td>
         <td>
-          <button class="secondary" type="button" onclick="viewHistoryRecord('${record.writingId}')">보기</button>
-          ${canEdit ? `<button type="button" onclick="openEditReason('${record.writingId}')">수정</button>` : `<button class="ghost" type="button" onclick="alert('제출일이 지난 관찰일지는 관리자에게 수정 요청해 주세요.')">수정불가</button>`}
+          <button class="secondary" type="button" onclick="viewHistoryRecord('${escapeAttribute(record.writingId)}')">보기</button>
+          ${canEdit ? `<button type="button" onclick="openEditReason('${escapeAttribute(record.writingId)}')">수정</button>` : `<button class="ghost" type="button" onclick="alert('제출일이 지난 관찰일지는 관리자에게 수정 요청해 주세요.')">수정불가</button>`}
         </td>
       </tr>
     `);
