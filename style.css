@@ -358,19 +358,54 @@ button.small-btn {
   display: flex;
   gap: 8px;
   margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
   overflow-x: auto;
 }
 
 .tab {
-  background: #eaf2f8;
-  color: #31516f;
+  padding: 10px 20px;
+  background: #eef3f8;
+  color: #445a72;
+  border: 1px solid transparent;
   box-shadow: none;
   white-space: nowrap;
+  font-weight: 700;
+}
+
+.tab:hover {
+  background: #dde8f3;
+  color: #1f4972;
+  box-shadow: 0 6px 14px rgba(43, 91, 138, 0.10);
+  transform: translateY(-1px);
+}
+
+.tab:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(43, 91, 138, 0.10);
+}
+
+.tab:focus-visible {
+  outline: 3px solid rgba(79, 158, 232, 0.34);
+  outline-offset: 2px;
 }
 
 .tab.active {
-  background: var(--primary);
+  background: var(--primary-dark);
   color: #fff;
+  font-weight: 900;
+  box-shadow: 0 10px 22px rgba(47, 120, 189, 0.28);
+}
+
+.tab.active:hover {
+  background: #245d97;
+  color: #fff;
+  box-shadow: 0 14px 28px rgba(47, 120, 189, 0.36);
+}
+
+.tab.active:active {
+  transform: translateY(0);
+  box-shadow: 0 5px 12px rgba(47, 120, 189, 0.24);
 }
 
 .notice,

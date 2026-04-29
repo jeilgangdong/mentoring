@@ -25,7 +25,7 @@
     <h1>반갑습니다</h1>
     <p>제일강동지역아동센터 관찰일지에 오신 것을 환영합니다. 안내받은 비밀번호를 입력해 주세요.</p>
     <label for="systemPassword">시스템 비밀번호</label>
-    <input id="systemPassword" type="password" autocomplete="current-password" placeholder="시스템 비밀번호" />
+    <input id="systemPassword" type="password" autocomplete="current-password" placeholder="시스템 비밀번호" onkeydown="if(event.key==='Enter')checkSystemPassword()" />
     <button type="button" onclick="checkSystemPassword()">입장하기</button>
   </main>
 
@@ -33,9 +33,9 @@
     <h1>멘토 로그인</h1>
     <p>오늘의 관찰일지를 작성할 멘토 이름과 PIN을 입력해 주세요.</p>
     <label for="mentorName">멘토 이름</label>
-    <input id="mentorName" type="text" autocomplete="name" placeholder="예: 김멘토" />
+    <input id="mentorName" type="text" autocomplete="name" placeholder="예: 김멘토" onkeydown="if(event.key==='Enter')mentorLogin()" />
     <label for="mentorPin">PIN</label>
-    <input id="mentorPin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="PIN" />
+    <input id="mentorPin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="PIN" onkeydown="if(event.key==='Enter')mentorLogin()" />
     <button type="button" onclick="mentorLogin()">로그인</button>
   </main>
 
